@@ -2,7 +2,7 @@
 
 [<EntryPoint>]
 let main args =
-    match Lexer.lexAll (String.concat " " args) 0 with
+    match Lexer.lexAll (String.concat " " args) -1 with
     | Ok tokens ->
         printfn "%A" tokens
         0
