@@ -2,28 +2,34 @@ module Lexer
 
 open System
 open Computation
-
-type Token =
-    | Number of float
-    | Plus
-    | Minus
-    | Star
-    | Slash
-    | LParen
-    | RParen
-    | Eof
+open Token
 
 let isDigit c = Char.IsDigit c
 let isSpace c = Char.IsWhiteSpace c
-let isNumber c = isDigit c || c = '.'
+let isDigitOrDot c = isDigit c || c = '.'
 
 let (>>=) res variant = res |> Result.map (fun ok -> variant :: ok)
 
-type LexerResult = Result<Token list, string>
+type LexerError = {
+    message: string
+    pos: int
+}
+
+type LexerResult = Result<Token list, LexerError>
 
 let rec lexAll (input: string) (pos: int): LexerResult =
+    let token kind = {
+        kind = kind
+        pos = pos
+    }
+
+    let error msg = {
+        message = msg
+        pos = pos
+    }
+
     if pos >= input.Length then
-        Ok [Eof]
+        Ok [token Eof]
     else
         let c = input.[pos]
         let next () = lexAll input (pos + 1)
@@ -31,31 +37,33 @@ let rec lexAll (input: string) (pos: int): LexerResult =
         match c with
         | _ when isSpace c -> next ()
 
-        | '+' -> next () >>= Plus
-        | '-' -> next () >>= Minus
-        | '*' -> next () >>= Star
-        | '/' -> next () >>= Slash
-        | '(' -> next () >>= LParen
-        | ')' -> next () >>= RParen
+        | '+' -> next () >>= token Plus
+        | '-' -> next () >>= token Minus
+        | '*' -> next () >>= token Star
+        | '/' -> next () >>= token Slash
+        | '(' -> next () >>= token LParen
+        | ')' -> next () >>= token RParen
 
-        | _ when isNumber c ->
-            result {
-                let sb = Text.StringBuilder ()
-                let rec readNum i =
-                    if i < input.Length && isNumber input.[i] then
-                        sb.Append(input.[i]) |> ignore
-                        readNum (i + 1)
-                    else i
+        | _ when isDigitOrDot c -> lexNumber input pos token error
+        | _ -> Error (error (sprintf "Unknown character: '%c'" c))
 
-                let nextDigit = readNum pos
+and lexNumber input pos token error =
+    result {
+        let sb = Text.StringBuilder ()
+        let rec readNum i =
+            if i < input.Length && isDigitOrDot input.[i] then
+                sb.Append(input.[i]) |> ignore
+                readNum (i + 1)
+            else i
 
-                let! value =
-                    match Double.TryParse (sb.ToString ()) with
-                        | true, value -> Ok value
-                        | _ -> Error "Cannot parse number."
+        let nextDigit = readNum pos
 
-                let! res = lexAll input nextDigit
-                return! Ok (Number value :: res)
-            }
+        // fix
+        let! value =
+            match Double.TryParse (sb.ToString ()) with
+                | true, value -> Ok value
+                | _ -> Error (error "Cannot parse number.")
 
-        | _ -> Error (sprintf "Unknown character: '%c'" c)
+        let! res = lexAll input nextDigit
+        return! Ok (token (Number value) :: res)
+    }
